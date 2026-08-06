@@ -176,6 +176,7 @@ Logging uses syslog-style levels (0-7) via `logger.h`. Application layer uses `p
 
 - **H**: Toggle overlay visibility
 - **F** / **Double-click**: Toggle fullscreen
+- **Auto fullscreen**: Optional setting that enters fullscreen when a device connects
 - Mouse movement shows cursor (auto-hides after 5s)
 
 ## Quality Presets

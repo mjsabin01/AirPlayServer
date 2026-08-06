@@ -113,6 +113,9 @@ public:
 	EOverlayState GetOverlayState() const { return m_overlayState; }
 	bool IsOverlayVisible() const { return m_overlayState == OVERLAY_EXPANDED; }
 	void ShowOverlay() { m_overlayState = OVERLAY_EXPANDED; }
+
+	// Auto-fullscreen when a viewer connects (persisted in settings).
+	bool IsAutoFullscreenOnConnect() const { return m_autoFullscreenOnConnect; }
 	void ToggleOverlay() {
 		m_overlayState = m_overlayState == OVERLAY_EXPANDED
 			? OVERLAY_HIDDEN : OVERLAY_EXPANDED;
@@ -167,6 +170,9 @@ private:
 	bool m_screenCastEnabled;
 	bool m_screenCastHideInterface;
 	bool m_screenCastCropToVideo;
+
+	// Auto-fullscreen when a viewer connects (opt-in, persisted to ini).
+	bool m_autoFullscreenOnConnect;
 
 	// Audio controls
 	float m_deviceVolume;        // Volume from AirPlay device (0.0 to 1.0)

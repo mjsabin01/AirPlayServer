@@ -781,6 +781,11 @@ void CSDLPlayer::applyConnectionState(bool connected, const char* deviceName)
 	} else if (!m_bConnected && connected) {
 		m_bDisconnecting = false;
 		InterlockedExchange(&m_zoomResetPending, 1);
+		if (m_imgui.IsAutoFullscreenOnConnect() && !m_bFullscreen) {
+			// Connection changes are applied on the SDL thread, so fullscreen state
+			// can be changed here without touching the window from the network callback.
+			toggleFullscreen();
+		}
 
 		// Open perf log on connect
 		{

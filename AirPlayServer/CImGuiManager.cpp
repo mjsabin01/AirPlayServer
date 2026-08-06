@@ -252,6 +252,7 @@ CImGuiManager::CImGuiManager()
 	, m_screenCastEnabled(false)
 	, m_screenCastHideInterface(true)
 	, m_screenCastCropToVideo(true)
+	, m_autoFullscreenOnConnect(false)
 	, m_deviceVolume(0.5f)     // Default 50% (will be updated by device)
 	, m_localVolume(1.0f)      // Default 100% local volume
 	, m_bAutoAdjust(false)     // Auto-adjust off by default
@@ -732,6 +733,16 @@ void CImGuiManager::RenderSettingsPopup()
 	m_bEditingDeviceName = ImGui::IsItemActive();
 	ImGui::TextColored(UI_TEXT_MUTED,
 		"Shown in Screen Mirroring. Changes apply automatically when disconnected.");
+
+	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::Spacing();
+	ImGui::TextColored(UI_TEXT_SECONDARY, "Viewer");
+	if (ImGui::Checkbox("Enter fullscreen when a device connects",
+		&m_autoFullscreenOnConnect)) {
+		// Persisted with the other viewer settings on shutdown.
+	}
+	ShowTooltip("Automatically use borderless fullscreen for each new AirPlay session");
 
 	ImGui::Spacing();
 	ImGui::Separator();
@@ -1658,6 +1669,8 @@ void CImGuiManager::LoadSettings(const char* iniPath)
 	if (preset >= QUALITY_GOOD && preset <= QUALITY_FAST) {
 		m_qualityPreset = (EQualityPreset)preset;
 	}
+	m_autoFullscreenOnConnect =
+		GetPrivateProfileIntA("General", "AutoFullscreenOnConnect", 0, iniPath) != 0;
 
 	// Screen-cast defaults preserve the existing receiver behavior until enabled.
 	m_screenCastEnabled = GetPrivateProfileIntA("ScreenCast", "Enabled", 0, iniPath) != 0;
@@ -1723,6 +1736,8 @@ void CImGuiManager::SaveSettings(const char* iniPath)
 	char buf[16];
 	sprintf_s(buf, sizeof(buf), "%d", (int)m_qualityPreset);
 	WritePrivateProfileStringA("General", "QualityPreset", buf, iniPath);
+	WritePrivateProfileStringA("General", "AutoFullscreenOnConnect",
+		m_autoFullscreenOnConnect ? "1" : "0", iniPath);
 
 	WritePrivateProfileStringA("ScreenCast", "Enabled",
 		m_screenCastEnabled ? "1" : "0", iniPath);
