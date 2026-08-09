@@ -682,6 +682,11 @@ void raop_rtp_mirror_stop(raop_rtp_mirror_t *raop_rtp_mirror) {
     int mirror_data_sock;
     int mirror_time_sock;
 
+    /* A stream-specific TEARDOWN may reference a stream that this control
+     * connection never initialized. Treat that as an idempotent stop. */
+    if (!raop_rtp_mirror) {
+        return;
+    }
     assert(raop_rtp_mirror);
     logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "Stopping raop rtp mirror");
 
