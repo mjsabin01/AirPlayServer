@@ -180,6 +180,7 @@ xcopy /y "$(SolutionDir)external\plist\lib\$(PlatformTarget)\*.dll" $(OutDir)</C
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="AirPlayServer.cpp" />
+    <ClCompile Include="DebugLogger.cpp" />
     <ClCompile Include="CCleanFeedOutput.cpp" />
     <ClCompile Include="CAirServer.cpp" />
     <ClCompile Include="CAirServerCallback.cpp" />
@@ -196,6 +197,7 @@ xcopy /y "$(SolutionDir)external\plist\lib\$(PlatformTarget)\*.dll" $(OutDir)</C
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CAirServer.h" />
+    <ClInclude Include="DebugLogger.h" />
     <ClInclude Include="CCleanFeedOutput.h" />
     <ClInclude Include="CAirServerCallback.h" />
     <ClInclude Include="CAutoLock.h" />
