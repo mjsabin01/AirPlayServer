@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include "FgUtf8Utils.h"
 #include <locale.h>
+#include "DebugLogger.h"
 
 #define min(a,b)            (((a) < (b)) ? (a) : (b))
 
@@ -21,6 +22,7 @@ void CAirServerCallback::setPlayer(CSDLPlayer* pPlayer)
 }
 
 void CAirServerCallback::connected(const char* remoteName, const char* remoteDeviceId) {
+	DebugLogger::Write("connection", "connected name=%s device=%s", remoteName ? remoteName : "(null)", remoteDeviceId ? remoteDeviceId : "(null)");
 	if (remoteDeviceId != NULL) {
 		strncpy(m_chRemoteDeviceId, remoteDeviceId, 128);
 	}
@@ -43,6 +45,7 @@ void CAirServerCallback::connected(const char* remoteName, const char* remoteDev
 }
 
 void CAirServerCallback::disconnected(const char* remoteName, const char* remoteDeviceId) {
+	DebugLogger::Write("connection", "disconnected name=%s device=%s", remoteName ? remoteName : "(null)", remoteDeviceId ? remoteDeviceId : "(null)");
 	memset(m_chRemoteDeviceId, 0, 128);
 	printf("Client disconnected\n");
 
@@ -88,11 +91,13 @@ void CAirServerCallback::outputVideo(SFgVideoFrame* data, const char* remoteName
 
 void CAirServerCallback::videoPlay(char* url, double volume, double startPos)
 {
+	DebugLogger::Write("video", "play url=%s volume=%.3f start=%.3f", url ? url : "(null)", volume, startPos);
 	printf("Play: %s", url);
 }
 
 void CAirServerCallback::setVolume(float volume, const char* remoteName, const char* remoteDeviceId)
 {
+	DebugLogger::Write("audio", "volume=%.3f name=%s device=%s", volume, remoteName ? remoteName : "(null)", remoteDeviceId ? remoteDeviceId : "(null)");
 	if (m_pPlayer)
 	{
 		m_pPlayer->setVolume(volume);
@@ -116,6 +121,7 @@ void CAirServerCallback::videoGetPlayInfo(double* duration, double* position, do
 
 void CAirServerCallback::log(int level, const char* msg)
 {
+	DebugLogger::Write("airplay", "level=%d %s", level, msg ? msg : "(null)");
 #ifdef _DEBUG
 	OutputDebugStringA(msg);
 	OutputDebugStringA("\n");

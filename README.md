@@ -76,6 +76,16 @@ The app warns you at startup if Bonjour is missing or its service is not running
 
 1. Start AirPlayServer.
 2. Open Control Center on an iPhone or iPad, or open the AirPlay menu on a Mac.
+
+### Debug logging
+
+To collect diagnostics for playback or audio-output switching issues, start the
+server with `AirPlayServer.exe --debug`. A new timestamped log is written for
+each run under `%LOCALAPPDATA%\AirPlayServer\logs` (or the system temporary
+directory if `LOCALAPPDATA` is unavailable). The log includes startup and
+shutdown, connection/device identifiers, AirPlay protocol messages, playback
+and volume callbacks, thread IDs, and unhandled exception details. Debug mode
+is opt-in and does not create log files during normal launches.
 3. Select the Windows PC from the list.
 4. Start mirroring or playback.
 

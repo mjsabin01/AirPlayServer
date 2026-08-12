@@ -4,10 +4,12 @@
 //
 #include <windows.h>
 #include <signal.h>
+#include <string.h>
 #include "Airplay2Head.h"
 #include "CAirServerCallback.h"
 #include "SDL.h"
 #include "CSDLPlayer.h"
+#include "DebugLogger.h"
 
 // Global player pointer for cleanup handlers
 static CSDLPlayer* g_pPlayer = NULL;
@@ -25,6 +27,8 @@ void CleanupAndShutdown()
         g_pPlayer->m_server.stop();
         Sleep(150);
     }
+    DebugLogger::Write("shutdown", "cleanup requested");
+    DebugLogger::Stop();
 }
 
 // atexit handler as a fallback
@@ -37,6 +41,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 {
     (void)hInstance; (void)hPrevInstance; (void)lpCmdLine; (void)nCmdShow;
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+    const bool debugRequested = lpCmdLine &&
+        (strstr(lpCmdLine, "--debug") != NULL || strstr(lpCmdLine, "/debug") != NULL);
+    if (DebugLogger::Start(lpCmdLine)) {
+        std::string message = "Debug logging is enabled.\n\nLog file:\n" + DebugLogger::Path();
+        MessageBoxA(NULL, message.c_str(), "AirPlayServer - Debug Logging",
+            MB_OK | MB_ICONINFORMATION);
+    }
+    else if (debugRequested) {
+        MessageBoxA(NULL,
+            "Debug logging was requested, but the log file could not be created.\n\n"
+            "Check that %LOCALAPPDATA% is writable and try again.",
+            "AirPlayServer - Debug Logging Error", MB_OK | MB_ICONERROR);
+    }
+    DebugLogger::Write("startup", "AirPlayServer starting; pid=%lu", GetCurrentProcessId());
 
     // Enable per-monitor DPI awareness for sharp rendering on high-DPI displays
     // Use runtime loading since these APIs require Windows 10 1703+
@@ -178,11 +196,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     player.setServerName(hostName);
 
     if (!player.init()) {
+        DebugLogger::Write("startup", "player initialization failed");
         g_pPlayer = NULL;
         return 1;
     }
 
     player.loopEvents();
+    DebugLogger::Write("shutdown", "event loop exited");
+    DebugLogger::Stop();
 
     // Clear global pointer before player is destroyed
     g_pPlayer = NULL;
