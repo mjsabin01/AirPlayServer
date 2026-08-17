@@ -1,15 +1,18 @@
 ﻿#include "pch.h"
 #include "FgAirplayServer.h"
 #include "Airplay2Head.h"
+#include <limits>
 #include <thread>
+#include <vector>
 #include "CAutoLock.h"
 
-#ifdef WIN32
-#include   "iphlpapi.h"  
-#pragma   comment(lib,   "iphlpapi.lib   ")  
+#ifdef _WIN32
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
+#pragma comment(lib, "iphlpapi.lib")
 #endif
 
-BOOL GetMacAddress(char strMac[6]);
+static BOOL GetPrimaryMacAddress(char strMac[6]);
 
 FgAirplayServer::FgAirplayServer()
 	: m_pCallback(NULL)
@@ -71,7 +74,7 @@ int FgAirplayServer::start(const char serverName[AIRPLAY_NAME_LEN],
 	int ret = 0;
 	do {
 
-		GetMacAddress(hwaddr);
+		GetPrimaryMacAddress(hwaddr);
 
 		m_pAirplay = airplay_init(10, &m_stAirplayCB, pemstr, &ret);
 		if (m_pAirplay == NULL) {
@@ -431,41 +434,162 @@ void FgAirplayServer::log_callback(void* cls, int level, const char* msg)
 	}
 }
 
-BOOL GetMacAddress(char strMac[6])
+static bool IsUsableUnicastAddress(const IP_ADAPTER_UNICAST_ADDRESS* address)
 {
-	PIP_ADAPTER_INFO pAdapterInfo;
-	DWORD AdapterInfoSize;
-	DWORD Err;
-	AdapterInfoSize = 0;
-	Err = GetAdaptersInfo(NULL, &AdapterInfoSize);
-	if ((Err != 0) && (Err != ERROR_BUFFER_OVERFLOW)) {
-		printf("���������Ϣʧ��!");
-		return   FALSE;
+	if (address == NULL || address->Address.lpSockaddr == NULL) {
+		return false;
 	}
-	//   ����������Ϣ�ڴ�  
-	pAdapterInfo = (PIP_ADAPTER_INFO)GlobalAlloc(GPTR, AdapterInfoSize);
-	if (pAdapterInfo == NULL) {
-		printf("����������Ϣ�ڴ�ʧ��");
-		return   FALSE;
+	if (address->DadState != IpDadStatePreferred &&
+		address->DadState != IpDadStateDeprecated) {
+		return false;
 	}
-	if (GetAdaptersInfo(pAdapterInfo, &AdapterInfoSize) != 0) {
-		printf("���������Ϣʧ��!\n");
-		GlobalFree(pAdapterInfo);
-		return   FALSE;
-	}
-	for (int i = 0; i < 6; i++)
-	{
-		strMac[i] = pAdapterInfo->Address[i];
-	}
-// 	strMac[0] = pAdapterInfo->Address[0];
-// 	sprintf_s(strMac, 7, "%02X%02X%02X%02X%02X%02X",
-// 		pAdapterInfo->Address[0],
-// 		pAdapterInfo->Address[1],
-// 		pAdapterInfo->Address[2],
-// 		pAdapterInfo->Address[3],
-// 		pAdapterInfo->Address[4],
-// 		pAdapterInfo->Address[5]);
 
-	GlobalFree(pAdapterInfo);
-	return   TRUE;
+	if (address->Address.lpSockaddr->sa_family == AF_INET) {
+		const sockaddr_in* ipv4 =
+			reinterpret_cast<const sockaddr_in*>(address->Address.lpSockaddr);
+		return ipv4->sin_addr.s_addr != INADDR_ANY &&
+			ipv4->sin_addr.s_addr != INADDR_BROADCAST;
+	}
+
+	if (address->Address.lpSockaddr->sa_family == AF_INET6) {
+		const sockaddr_in6* ipv6 =
+			reinterpret_cast<const sockaddr_in6*>(address->Address.lpSockaddr);
+		return !IN6_IS_ADDR_UNSPECIFIED(&ipv6->sin6_addr) &&
+			!IN6_IS_ADDR_MULTICAST(&ipv6->sin6_addr);
+	}
+
+	return false;
+}
+
+static bool GetUsableAddressFamilies(const IP_ADAPTER_ADDRESSES* adapter,
+	bool* hasIpv4, bool* hasIpv6)
+{
+	*hasIpv4 = false;
+	*hasIpv6 = false;
+
+	for (const IP_ADAPTER_UNICAST_ADDRESS* address = adapter->FirstUnicastAddress;
+		address != NULL; address = address->Next) {
+		if (!IsUsableUnicastAddress(address)) {
+			continue;
+		}
+
+		if (address->Address.lpSockaddr->sa_family == AF_INET) {
+			*hasIpv4 = true;
+		}
+		else if (address->Address.lpSockaddr->sa_family == AF_INET6) {
+			*hasIpv6 = true;
+		}
+	}
+
+	return *hasIpv4 || *hasIpv6;
+}
+
+static bool HasUsableGateway(const IP_ADAPTER_ADDRESSES* adapter)
+{
+	for (const IP_ADAPTER_GATEWAY_ADDRESS_LH* gateway = adapter->FirstGatewayAddress;
+		gateway != NULL; gateway = gateway->Next) {
+		if (gateway->Address.lpSockaddr == NULL) {
+			continue;
+		}
+
+		if (gateway->Address.lpSockaddr->sa_family == AF_INET) {
+			const sockaddr_in* ipv4 =
+				reinterpret_cast<const sockaddr_in*>(gateway->Address.lpSockaddr);
+			if (ipv4->sin_addr.s_addr != INADDR_ANY) {
+				return true;
+			}
+		}
+		else if (gateway->Address.lpSockaddr->sa_family == AF_INET6) {
+			const sockaddr_in6* ipv6 =
+				reinterpret_cast<const sockaddr_in6*>(gateway->Address.lpSockaddr);
+			if (!IN6_IS_ADDR_UNSPECIFIED(&ipv6->sin6_addr)) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+static ULONG GetAdapterMetric(const IP_ADAPTER_ADDRESSES* adapter,
+	bool hasIpv4, bool hasIpv6)
+{
+	ULONG metric = (std::numeric_limits<ULONG>::max)();
+	if (hasIpv4) {
+		metric = adapter->Ipv4Metric;
+	}
+	if (hasIpv6 && adapter->Ipv6Metric < metric) {
+		metric = adapter->Ipv6Metric;
+	}
+	return metric;
+}
+
+static BOOL GetPrimaryMacAddress(char strMac[6])
+{
+	const ULONG flags = GAA_FLAG_INCLUDE_GATEWAYS |
+		GAA_FLAG_SKIP_ANYCAST |
+		GAA_FLAG_SKIP_MULTICAST |
+		GAA_FLAG_SKIP_DNS_SERVER;
+	ULONG bufferSize = 15 * 1024;
+	std::vector<unsigned char> buffer(bufferSize);
+	DWORD result = ERROR_BUFFER_OVERFLOW;
+
+	for (int attempt = 0; attempt < 3 && result == ERROR_BUFFER_OVERFLOW; ++attempt) {
+		buffer.resize(bufferSize);
+		result = GetAdaptersAddresses(AF_UNSPEC, flags, NULL,
+			reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()), &bufferSize);
+	}
+	if (result != NO_ERROR) {
+		return FALSE;
+	}
+
+	const IP_ADAPTER_ADDRESSES* bestAdapter = NULL;
+	bool bestHasGateway = false;
+	ULONG bestMetric = (std::numeric_limits<ULONG>::max)();
+
+	for (const IP_ADAPTER_ADDRESSES* adapter =
+		reinterpret_cast<const IP_ADAPTER_ADDRESSES*>(buffer.data());
+		adapter != NULL; adapter = adapter->Next) {
+		if (adapter->OperStatus != IfOperStatusUp ||
+			(adapter->Flags & IP_ADAPTER_NO_MULTICAST) != 0 ||
+			adapter->PhysicalAddressLength != 6 ||
+			adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK ||
+			adapter->IfType == IF_TYPE_TUNNEL) {
+			continue;
+		}
+
+		bool hasNonZeroMac = false;
+		for (ULONG i = 0; i < adapter->PhysicalAddressLength; ++i) {
+			if (adapter->PhysicalAddress[i] != 0) {
+				hasNonZeroMac = true;
+				break;
+			}
+		}
+		if (!hasNonZeroMac) {
+			continue;
+		}
+
+		bool hasIpv4;
+		bool hasIpv6;
+		if (!GetUsableAddressFamilies(adapter, &hasIpv4, &hasIpv6)) {
+			continue;
+		}
+
+		const bool hasGateway = HasUsableGateway(adapter);
+		const ULONG metric = GetAdapterMetric(adapter, hasIpv4, hasIpv6);
+		if (bestAdapter == NULL ||
+			(hasGateway && !bestHasGateway) ||
+			(hasGateway == bestHasGateway && metric < bestMetric)) {
+			bestAdapter = adapter;
+			bestHasGateway = hasGateway;
+			bestMetric = metric;
+		}
+	}
+
+	if (bestAdapter == NULL) {
+		return FALSE;
+	}
+
+	memcpy(strMac, bestAdapter->PhysicalAddress, 6);
+	return TRUE;
 }
