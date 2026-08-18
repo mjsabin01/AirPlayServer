@@ -117,7 +117,11 @@ public:
 	// Audio quality improvements
 	static const int AUDIO_BUFFER_SAMPLES = 1024;   // ~21ms at 48kHz (balanced latency/quality)
 	static const int AUDIO_QUEUE_MAX_FRAMES = 20;   // Max frames before dropping (~400ms buffer)
-	static const int AUDIO_QUEUE_START_THRESHOLD = 3;  // Frames needed before starting playback
+	static const int AUDIO_QUEUE_TARGET_FRAMES = 8; // Closed-loop resampler target (~170ms at 48kHz)
+	static const int AUDIO_QUEUE_START_THRESHOLD = AUDIO_QUEUE_TARGET_FRAMES;
+	static constexpr double AUDIO_RESAMPLE_PROPORTIONAL_GAIN = 0.001; // 1000ppm per frame
+	static constexpr double AUDIO_RESAMPLE_INTEGRAL_GAIN = 0.0000005; // 0.5ppm per frame per packet
+	static constexpr double AUDIO_RESAMPLE_MAX_CORRECTION = 0.005; // Never alter pitch by more than 0.5%
 	int m_audioUnderrunCount;                       // Track underruns for diagnostics
 	int m_audioDroppedFrames;                       // Track dropped frames for diagnostics
 	bool m_audioFadeOut;                            // Fade out on underrun to prevent pops
@@ -128,7 +132,8 @@ public:
 	DWORD m_streamSampleRate;                       // Incoming stream sample rate
 	uint8_t* m_resampleBuffer;                      // Buffer for resampled audio
 	int m_resampleBufferSize;                       // Size of resample buffer
-	double m_resamplePos;                           // Fractional position for linear interpolation
+	double m_resamplePos;                           // Fractional output sample carried between input frames
+	double m_resampleCorrection;                    // Learned sender/device clock correction
 	bool m_needsResampling;                         // Flag indicating resampling is needed
 
 	// Dynamic limiter (normalize loud sounds)
