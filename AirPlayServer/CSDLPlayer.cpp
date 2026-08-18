@@ -339,6 +339,7 @@ CSDLPlayer::CSDLPlayer()
 	m_resampleBuffer = NULL;
 	m_resampleBufferSize = 0;
 	m_resamplePos = 0.0;
+	m_resampleCorrection = 0.0;
 	m_needsResampling = false;
 
 	// Initialize dynamic limiter
@@ -1972,9 +1973,37 @@ void CSDLPlayer::outputAudio(SFgAudioFrame* data)
 		int channels = data->channels;
 		int inSamples = data->dataLen / (channels * bytesPerSample);
 
-		// Calculate output samples based on sample rate ratio
-		double ratio = (double)m_systemSampleRate / (double)m_streamSampleRate;
-		int outSamples = (int)(inSamples * ratio + 0.5);
+		// Keep the producer clock locked to the device clock. A fixed nominal
+		// ratio eventually drains or fills the queue because the two clocks are
+		// never exactly equal. Producing slightly more audio at low queue depths
+		// (and slightly less at high depths) keeps the queue near its target.
+		int queueDepth = 0;
+		{
+			CAutoLock oLock(m_mutexAudio, "resampleQueueDepth");
+			queueDepth = (int)m_queueAudio.size();
+		}
+		double queueError = (double)(AUDIO_QUEUE_TARGET_FRAMES - queueDepth);
+		m_resampleCorrection += queueError * AUDIO_RESAMPLE_INTEGRAL_GAIN;
+		if (m_resampleCorrection > AUDIO_RESAMPLE_MAX_CORRECTION) {
+			m_resampleCorrection = AUDIO_RESAMPLE_MAX_CORRECTION;
+		} else if (m_resampleCorrection < -AUDIO_RESAMPLE_MAX_CORRECTION) {
+			m_resampleCorrection = -AUDIO_RESAMPLE_MAX_CORRECTION;
+		}
+		double correction = m_resampleCorrection +
+			queueError * AUDIO_RESAMPLE_PROPORTIONAL_GAIN;
+		if (correction > AUDIO_RESAMPLE_MAX_CORRECTION) {
+			correction = AUDIO_RESAMPLE_MAX_CORRECTION;
+		} else if (correction < -AUDIO_RESAMPLE_MAX_CORRECTION) {
+			correction = -AUDIO_RESAMPLE_MAX_CORRECTION;
+		}
+		double ratio = ((double)m_systemSampleRate / (double)m_streamSampleRate) *
+			(1.0 + correction);
+
+		// Carry the fractional output count across calls instead of rounding each
+		// input frame independently, which introduces another persistent rate error.
+		double exactOutSamples = (double)inSamples * ratio + m_resamplePos;
+		int outSamples = (int)floor(exactOutSamples);
+		m_resamplePos = exactOutSamples - (double)outSamples;
 
 		// Ensure we have enough buffer space
 		int outBufferSize = outSamples * channels * bytesPerSample;
@@ -3130,6 +3159,7 @@ void CSDLPlayer::initAudio(SFgAudioFrame* data)
 		if (m_streamSampleRate != m_systemSampleRate) {
 			m_needsResampling = true;
 			m_resamplePos = 0.0;
+			m_resampleCorrection = 0.0;
 
 			// Allocate resample buffer (enough for 1 second of audio)
 			m_resampleBufferSize = m_systemSampleRate * data->channels * 2;
@@ -3169,7 +3199,12 @@ void CSDLPlayer::initAudio(SFgAudioFrame* data)
 			m_fileWav = fopen("airplay-audio.wav", "wb");
 		}
 	}
-	if (m_queueAudio.size() >= AUDIO_QUEUE_START_THRESHOLD) {
+	int audioQueueDepth = 0;
+	{
+		CAutoLock oLock(m_mutexAudio, "initAudioQueueDepth");
+		audioQueueDepth = (int)m_queueAudio.size();
+	}
+	if (audioQueueDepth >= AUDIO_QUEUE_START_THRESHOLD) {
 		SDL_PauseAudioDevice(m_audioDeviceID, 0);
 	}
 }
@@ -3213,6 +3248,7 @@ void CSDLPlayer::unInitAudio()
 	}
 	m_needsResampling = false;
 	m_resamplePos = 0.0;
+	m_resampleCorrection = 0.0;
 	m_streamSampleRate = 0;
 }
 
